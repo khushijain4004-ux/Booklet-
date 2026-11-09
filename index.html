@@ -176,7 +176,16 @@ function page(name){
 document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>page(b.dataset.page)));
 $("loginBtn").onclick=()=>signInWithRedirect(auth,provider);
 $("logoutBtn").onclick=()=>signOut(auth);
-getRedirectResult(auth).catch(e=>say("Sign-in error: "+e.message));
+getRedirectResult(auth)
+.then(result=>{
+ if(result && result.user){
+  console.log("Google login successful:",result.user.email);
+ }
+})
+.catch(e=>{
+ console.error("Sign-in error:",e);
+ say("Sign-in error: "+e.message);
+});
 
 onAuthStateChanged(auth,async u=>{
  if(!u){user=null;$("login").classList.remove("hidden");$("app").classList.add("hidden");$("logoutBtn").classList.add("hidden");return;}
