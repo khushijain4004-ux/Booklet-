@@ -351,4 +351,13 @@ function renderCalendar(){
   $("calendarDetails").innerHTML=`<h3>${key}</h3>`+
    (due.map(p=>`<p>Due: ${esc(p.customerName)} — ${esc(p.garmentName)}</p>`).join("")||"")+
    (rem.map(r=>`<p>Reminder: ${esc(r.title)} — ${esc(pieceTitle(r.pieceId))} ${esc(r.time||"")}</p>`).join("")||"")+
-   (!due.length&&
+   (!due.length&&!rem.length?"<p class='muted'>No items for this day.</p>":"");
+ });
+}
+$("prevMonth").onclick=()=>{calendarMonth.setMonth(calendarMonth.getMonth()-1);renderCalendar();};
+$("nextMonth").onclick=()=>{calendarMonth.setMonth(calendarMonth.getMonth()+1);renderCalendar();};
+
+function renderAll(){renderRecords();renderReminders();renderDashboard();renderCalendar();}
+</script>
+</body>
+</html>
