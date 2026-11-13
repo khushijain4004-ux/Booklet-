@@ -132,13 +132,22 @@ const firebaseConfig={
 };
 const GOOGLE_CLIENT_ID="575222197553-hoti84o48m002uour14ncaqq7qkjossd.apps.googleusercontent.com";
 const OWNER_EMAIL="khushijain4004@gmail.com";
+
+const STAFF_EMAILS=[
+ "spoorthiv@gmail.com",
+ "sahanamu8@gmail.com",
+ "veenarameahwara@gmail.com",
+ "mofijulrohaman2707@gmail.com",
+ "skhasmatulla@gmail.com",
+ "sh9547424736@gmail.com"
+];
 const firebaseApp=initializeApp(firebaseConfig);
 const auth=getAuth(firebaseApp);
 const db=getFirestore(firebaseApp);
 const provider=new GoogleAuthProvider();
 provider.setCustomParameters({prompt:"select_account"});
 const $=id=>document.getElementById(id);
-let user=null,pieces=[],reminders=[],driveToken=null,tokenClient=null,calendarMonth=new Date(),selectedCalendarDate="";
+let user=null,userRole=null,pieces=[],reminders=[],driveToken=null,tokenClient=null,calendarMonth=new Date(),selectedCalendarDate="";
 const statuses=["Pending","Cutting","Stitching","Embroidery","Kuchu","Fall pico","Ready","Delivered"];
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -173,18 +182,44 @@ $("loginBtn").onclick=async()=>{
  }finally{$("loginBtn").disabled=false;}
 };
 $("logoutBtn").onclick=()=>signOut(auth);
+
 onAuthStateChanged(auth,async u=>{
  if(!u){
-  user=null;$("login").classList.remove("hidden");$("app").classList.add("hidden");$("logoutBtn").classList.add("hidden");
+  user=null;
+  userRole=null;
+  $("login").classList.remove("hidden");
+  $("app").classList.add("hidden");
+  $("logoutBtn").classList.add("hidden");
   return;
  }
- if((u.email||"").toLowerCase()!==OWNER_EMAIL||!u.emailVerified){
-  await signOut(auth);loginSay("This Google account is not authorised. Sign in with "+OWNER_EMAIL+".");return;
+
+ const email=(u.email||"").toLowerCase();
+ const isOwner=email===OWNER_EMAIL;
+ const isStaff=STAFF_EMAILS.includes(email);
+
+ if((!isOwner&&!isStaff)||!u.emailVerified){
+  await signOut(auth);
+  loginSay("This Google account is not authorised for Booklet.");
+  return;
  }
- user=u;$("login").classList.add("hidden");$("app").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
- $("welcome").textContent="Signed in as "+u.email;
- try{await loadData();say("Your private Booklet records are loaded.");}
- catch(e){console.error(e);say("Database error: "+e.message);}
+
+ user=u;
+ userRole=isOwner?"owner":(email==="sahanamu8@gmail.com"?"editor":"viewer");
+
+ $("login").classList.add("hidden");
+ $("app").classList.remove("hidden");
+ $("logoutBtn").classList.remove("hidden");
+
+ $("welcome").textContent="Signed in as "+u.email+
+  (userRole==="owner"?" (Owner)":userRole==="editor"?" (Editor)":" (View only)");
+
+ try{
+  await loadData();
+  say("Your private Booklet records are loaded.");
+ }catch(e){
+  console.error(e);
+  say("Database error: "+e.message);
+ }
 });
 
 function connectDrive(){
@@ -237,6 +272,10 @@ function renderStats(){
 function renderRecords(){
  const q=$("searchBox").value.toLowerCase().trim(),s=$("statusFilter").value;
  const list=pieces.filter(p=>(!s||p.workStatus===s)&&(!q||(p.customerName+" "+p.garmentName+" "+(p.description||"")).toLowerCase().includes(q)));
+
+ const canEdit=userRole==="owner"||userRole==="editor";
+ const canDelete=userRole==="owner";
+
  $("recordList").innerHTML=list.length?list.map(p=>`
  <article class="piece">
   <div class="row" style="justify-content:space-between"><h3>${esc(p.customerName)}</h3><span class="tag">${esc(p.workStatus||"Pending")}</span></div>
@@ -246,8 +285,9 @@ function renderRecords(){
   ${p.completed?'<p style="color:#32745c">Completed</p>':""}
   ${p.description?`<p>${esc(p.description)}</p>`:""}
   ${photoLinks(p.measurementPhotos)}${photoLinks(p.patternPhotos)}
-  <div class="row" style="margin-top:9px"><button class="secondary" data-edit="${p.id}">Edit</button><button class="danger" data-delete="${p.id}">Delete</button></div>
+  ${canEdit||canDelete?`<div class="row" style="margin-top:9px">${canEdit?`<button class="secondary" data-edit="${p.id}">Edit</button>`:""}${canDelete?`<button class="danger" data-delete="${p.id}">Delete</button>`:""}</div>`:""}
  </article>`).join(""):'<p class="muted">No matching records yet. Add your first piece.</p>';
+
  document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>editPiece(b.dataset.edit));
  document.querySelectorAll("[data-delete]").forEach(b=>b.onclick=()=>removePiece(b.dataset.delete));
 }
@@ -262,6 +302,11 @@ function clearPieceForm(){
 }
 $("clearForm").onclick=clearPieceForm;
 function editPiece(id){
+ if(userRole!=="owner"&&userRole!=="editor"){
+  say("You have view-only access.");
+  return;
+ }
+
  const p=pieces.find(x=>x.id===id);if(!p)return;
  $("pieceId").value=p.id;$("customerName").value=p.customerName||"";$("garmentName").value=p.garmentName||"";
  $("orderDate").value=p.orderDate||"";$("dueDate").value=p.dueDate||"";$("workStatus").value=p.workStatus||"Pending";
@@ -271,26 +316,63 @@ function editPiece(id){
  $("formTitle").textContent="Edit piece";page("editor");window.scrollTo({top:0,behavior:"smooth"});
 }
 $("pieceForm").onsubmit=async e=>{
- e.preventDefault();if(!user)return;
+ e.preventDefault();
+
+ if(!user||(userRole!=="owner"&&userRole!=="editor")){
+  say("You do not have permission to add or edit records.");
+  return;
+ }
+
  const id=$("pieceId").value,old=pieces.find(p=>p.id===id)||{};
+
  try{
   const measurementPhotos=[...(old.measurementPhotos||[]),...await uploadFiles("measurementFiles","measurement")];
   const patternPhotos=[...(old.patternPhotos||[]),...await uploadFiles("patternFiles","pattern")];
+
   const data={
-   customerName:$("customerName").value.trim(),garmentName:$("garmentName").value.trim(),
-   orderDate:$("orderDate").value,dueDate:$("dueDate").value,workStatus:$("workStatus").value,
-   completed:$("completed").checked,description:$("description").value.trim(),
-   measurementPhotos,patternPhotos,ownerId:user.uid,updatedAt:new Date().toISOString()
+   customerName:$("customerName").value.trim(),
+   garmentName:$("garmentName").value.trim(),
+   orderDate:$("orderDate").value,
+   dueDate:$("dueDate").value,
+   workStatus:$("workStatus").value,
+   completed:$("completed").checked,
+   description:$("description").value.trim(),
+   measurementPhotos,patternPhotos,
+   ownerId:user.uid,
+   updatedAt:new Date().toISOString()
   };
+
   if(id)await updateDoc(doc(db,"pieces",id),data);
-  else {data.createdAt=new Date().toISOString();await addDoc(collection(db,"pieces"),data);}
-  await loadData();clearPieceForm();say("Piece saved successfully.");page("records");
- }catch(err){console.error(err);say(err.message||"Could not save the piece.");}
+  else{
+   data.createdAt=new Date().toISOString();
+   await addDoc(collection(db,"pieces"),data);
+  }
+
+  await loadData();
+  clearPieceForm();
+  say("Piece saved successfully.");
+  page("records");
+
+ }catch(err){
+  console.error(err);
+  say(err.message||"Could not save the piece.");
+ }
 };
 async function removePiece(id){
+ if(userRole!=="owner"){
+  say("Only the owner can delete records.");
+  return;
+ }
+
  if(!confirm("Delete this piece record? Photos already uploaded to Drive will remain in Drive."))return;
- try{await deleteDoc(doc(db,"pieces",id));await loadData();say("Piece record deleted.");}
- catch(e){say("Delete failed: "+e.message);}
+
+ try{
+  await deleteDoc(doc(db,"pieces",id));
+  await loadData();
+  say("Piece record deleted.");
+ }catch(e){
+  say("Delete failed: "+e.message);
+ }
 }
 function renderReminderPieceOptions(){
  const current=$("reminderPiece").value;
