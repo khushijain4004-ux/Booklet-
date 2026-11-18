@@ -36,11 +36,18 @@ textarea{min-height:85px;resize:vertical}label{display:block;font-size:13px;font
 <main>
 <section id="login" class="panel">
   <h1>Welcome to Booklet</h1>
-  <p class="muted">Sign in with your authorised Google account to manage your private records.</p>
+  <p class="muted">Sign in with your Google account to access Booklet.</p>
   <button id="loginBtn">Sign in with Google</button>
+  <div id="registrationPanel" class="hidden">
+    <h2>Staff Registration</h2>
+    <p class="muted">Enter the private registration code provided by the owner.</p>
+    <input id="staffRegistrationCode" type="password" placeholder="Enter staff registration code" autocomplete="off">
+    <button id="registerStaffBtn" style="margin-top:10px">Create Staff Account</button>
+  </div>
   <div id="loginMessage" class="message hidden"></div>
-  <p class="muted">Private access for the owner only.</p>
+  <p class="muted">Private access for authorised Booklet users.</p>
 </section>
+
 <section id="app" class="hidden">
   <div class="panel row" style="justify-content:space-between">
     <div><h2 style="margin:0">Your Booklet</h2><div id="welcome" class="muted"></div></div>
@@ -117,10 +124,11 @@ textarea{min-height:85px;resize:vertical}label{display:block;font-size:13px;font
 </section>
 <div class="foot">Booklet · Personal Record Management</div>
 </main>
+
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut,setPersistence,browserLocalPersistence} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
-import {getFirestore,collection,addDoc,getDocs,updateDoc,deleteDoc,doc} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+import {getFirestore,collection,addDoc,getDocs,getDoc,updateDoc,deleteDoc,doc,writeBatch} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 const firebaseConfig={
  apiKey:"AIzaSyCKcDSpQMco4ZmlTmbc2KGD230aK5F3xCE",
@@ -133,14 +141,6 @@ const firebaseConfig={
 const GOOGLE_CLIENT_ID="575222197553-hoti84o48m002uour14ncaqq7qkjossd.apps.googleusercontent.com";
 const OWNER_EMAIL="khushijain4004@gmail.com";
 
-const STAFF_EMAILS=[
- "spoorthiv@gmail.com",
- "sahanamu8@gmail.com",
- "veenarameahwara@gmail.com",
- "mofijulrohaman2707@gmail.com",
- "skhasmatulla@gmail.com",
- "sh9547424736@gmail.com"
-];
 const firebaseApp=initializeApp(firebaseConfig);
 const auth=getAuth(firebaseApp);
 const db=getFirestore(firebaseApp);
@@ -148,7 +148,6 @@ const provider=new GoogleAuthProvider();
 provider.setCustomParameters({prompt:"select_account"});
 const $=id=>document.getElementById(id);
 let user=null,userRole=null,pieces=[],reminders=[],driveToken=null,tokenClient=null,calendarMonth=new Date(),selectedCalendarDate="";
-const statuses=["Pending","Cutting","Stitching","Embroidery","Kuchu","Fall pico","Ready","Delivered"];
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const say=s=>{$("message").textContent=s;$("message").classList.remove("hidden")};
@@ -156,6 +155,8 @@ const loginSay=s=>{$("loginMessage").textContent=s;$("loginMessage").classList.r
 const pieceTitle=id=>{const p=pieces.find(x=>x.id===id);return p?p.customerName+" — "+p.garmentName:"No linked piece"};
 const isOverdue=p=>!!p.dueDate&&!p.completed&&p.dueDate<today();
 const dateLabel=s=>s?new Date(s+"T00:00:00").toLocaleDateString():"Not set";
+const canEdit=()=>userRole==="owner"||userRole==="staff";
+const isOwner=()=>userRole==="owner";
 
 async function loadData(){
  const [p,r]=await Promise.all([getDocs(collection(db,"pieces")),getDocs(collection(db,"reminders"))]);
@@ -174,78 +175,88 @@ document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",
 
 $("loginBtn").onclick=async()=>{
  $("loginBtn").disabled=true;loginSay("Opening Google sign-in...");
- try{
-  await setPersistence(auth,browserLocalPersistence);
-  await signInWithPopup(auth,provider);
- }catch(e){
-  console.error(e);loginSay("Sign-in error: "+(e.code||"")+(e.message?" — "+e.message:""));
- }finally{$("loginBtn").disabled=false;}
+ try{await setPersistence(auth,browserLocalPersistence);await signInWithPopup(auth,provider);}
+ catch(e){console.error(e);loginSay("Sign-in error: "+(e.code||"")+(e.message?" — "+e.message:""));}
+ finally{$("loginBtn").disabled=false;}
 };
 $("logoutBtn").onclick=()=>signOut(auth);
 
 onAuthStateChanged(auth,async u=>{
  if(!u){
-  user=null;
-  userRole=null;
-  $("login").classList.remove("hidden");
-  $("app").classList.add("hidden");
-  $("logoutBtn").classList.add("hidden");
+  user=null;userRole=null;
+  $("login").classList.remove("hidden");$("app").classList.add("hidden");$("logoutBtn").classList.add("hidden");
+  $("registrationPanel").classList.add("hidden");$("loginBtn").classList.remove("hidden");
+  $("loginMessage").classList.add("hidden");
   return;
  }
-
+ if(!u.emailVerified){
+  await signOut(auth);loginSay("Please use a verified Google account.");return;
+ }
  const email=(u.email||"").toLowerCase();
- const isOwner=email===OWNER_EMAIL;
- const isStaff=STAFF_EMAILS.includes(email);
-
- if((!isOwner&&!isStaff)||!u.emailVerified){
-  await signOut(auth);
-  loginSay("This Google account is not authorised for Booklet.");
-  return;
+ if(email===OWNER_EMAIL){
+  user=u;userRole="owner";
+ }else{
+  try{
+   const staffSnap=await getDoc(doc(db,"staff",u.uid));
+   if(!staffSnap.exists()){
+    user=u;userRole=null;
+    $("login").classList.remove("hidden");$("app").classList.add("hidden");$("logoutBtn").classList.add("hidden");
+    $("loginBtn").classList.add("hidden");$("registrationPanel").classList.remove("hidden");
+    loginSay("Enter the staff registration code provided by the owner.");
+    return;
+   }
+   user=u;userRole="staff";
+  }catch(e){
+   console.error(e);user=null;userRole=null;
+   $("login").classList.remove("hidden");$("app").classList.add("hidden");
+   loginSay("Could not verify your staff account: "+e.message);return;
+  }
  }
-
- user=u;
- userRole=isOwner?"owner":(email==="sahanamu8@gmail.com"?"editor":"viewer");
-
- $("login").classList.add("hidden");
- $("app").classList.remove("hidden");
- $("logoutBtn").classList.remove("hidden");
-
- $("welcome").textContent="Signed in as "+u.email+
-  (userRole==="owner"?" (Owner)":userRole==="editor"?" (Editor)":" (View only)");
-
- try{
-  await loadData();
-  say("Your private Booklet records are loaded.");
- }catch(e){
-  console.error(e);
-  say("Database error: "+e.message);
- }
+ $("login").classList.add("hidden");$("app").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
+ $("welcome").textContent="Signed in as "+u.email+(isOwner()?" (Owner)":" (Staff)");
+ try{await loadData();say("Your private Booklet records are loaded.");}
+ catch(e){console.error(e);say("Database error: "+e.message);}
 });
+
+$("registerStaffBtn").onclick=async()=>{
+ const code=$("staffRegistrationCode").value.trim();
+ if(!user||userRole!==null){loginSay("Please sign in with Google first.");return;}
+ if(!code){loginSay("Please enter the staff registration code.");return;}
+ $("registerStaffBtn").disabled=true;loginSay("Creating your staff account...");
+ try{
+  const batch=writeBatch(db);
+  batch.set(doc(db,"staff",user.uid),{role:"staff",createdAt:new Date().toISOString()});
+  batch.set(doc(db,"registrationAttempts",user.uid),{code});
+  await batch.commit();
+  userRole="staff";$("staffRegistrationCode").value="";
+  $("login").classList.add("hidden");$("app").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
+  $("welcome").textContent="Signed in as "+user.email+" (Staff)";
+  await loadData();say("Staff account created successfully.");
+ }catch(e){
+  console.error(e);loginSay("Registration failed. Check the code or contact the owner.");
+ }finally{$("registerStaffBtn").disabled=false;}
+};
 
 function connectDrive(){
  if(!window.google?.accounts?.oauth2){say("Google Drive sign-in is still loading. Wait a few seconds and try again.");return;}
  tokenClient=window.google.accounts.oauth2.initTokenClient({
-  client_id:GOOGLE_CLIENT_ID,
-  scope:"https://www.googleapis.com/auth/drive.file",
+  client_id:GOOGLE_CLIENT_ID,scope:"https://www.googleapis.com/auth/drive.file",
   callback:response=>{
    if(response.error){say("Drive connection failed: "+response.error);return;}
-   driveToken=response.access_token;
-   $("driveStatus").textContent="Drive connected for this session";
+   driveToken=response.access_token;$("driveStatus").textContent="Drive connected for this session";
    say("Google Drive is connected. You can now upload photos.");
   }
  });
  tokenClient.requestAccessToken({prompt:"consent"});
 }
 $("driveBtn").onclick=connectDrive;
-
 async function uploadDriveFile(file,folderLabel){
  if(!driveToken)throw new Error("Connect Google Drive before uploading photos.");
  const boundary="booklet_boundary_"+Math.random().toString(16).slice(2);
  const metadata={name:"Booklet_"+folderLabel+"_"+Date.now()+"_"+file.name,mimeType:file.type||"application/octet-stream"};
  const body=new Blob([
   "--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(metadata)+"\r\n",
-  "--"+boundary+"\r\nContent-Type: "+(file.type||"application/octet-stream")+"\r\n\r\n",
-  file,"\r\n--"+boundary+"--"
+  "--"+boundary+"\r\nContent-Type: "+(file.type||"application/octet-stream")+"\r\n\r\n",file,"\r\n--"+boundary+"--"
  ],{type:"multipart/related; boundary="+boundary});
  const response=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink",{
   method:"POST",headers:{Authorization:"Bearer "+driveToken},body
@@ -272,10 +283,6 @@ function renderStats(){
 function renderRecords(){
  const q=$("searchBox").value.toLowerCase().trim(),s=$("statusFilter").value;
  const list=pieces.filter(p=>(!s||p.workStatus===s)&&(!q||(p.customerName+" "+p.garmentName+" "+(p.description||"")).toLowerCase().includes(q)));
-
- const canEdit=userRole==="owner"||userRole==="editor";
- const canDelete=userRole==="owner";
-
  $("recordList").innerHTML=list.length?list.map(p=>`
  <article class="piece">
   <div class="row" style="justify-content:space-between"><h3>${esc(p.customerName)}</h3><span class="tag">${esc(p.workStatus||"Pending")}</span></div>
@@ -285,9 +292,8 @@ function renderRecords(){
   ${p.completed?'<p style="color:#32745c">Completed</p>':""}
   ${p.description?`<p>${esc(p.description)}</p>`:""}
   ${photoLinks(p.measurementPhotos)}${photoLinks(p.patternPhotos)}
-  ${canEdit||canDelete?`<div class="row" style="margin-top:9px">${canEdit?`<button class="secondary" data-edit="${p.id}">Edit</button>`:""}${canDelete?`<button class="danger" data-delete="${p.id}">Delete</button>`:""}</div>`:""}
+  <div class="row" style="margin-top:9px">${canEdit()?`<button class="secondary" data-edit="${p.id}">Edit</button>`:""}${isOwner()?`<button class="danger" data-delete="${p.id}">Delete</button>`:""}</div>
  </article>`).join(""):'<p class="muted">No matching records yet. Add your first piece.</p>';
-
  document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>editPiece(b.dataset.edit));
  document.querySelectorAll("[data-delete]").forEach(b=>b.onclick=()=>removePiece(b.dataset.delete));
 }
@@ -295,18 +301,14 @@ function renderUpcoming(){
  const arr=pieces.filter(p=>p.dueDate&&!p.completed&&p.dueDate>=today()).sort((a,b)=>a.dueDate.localeCompare(b.dueDate)).slice(0,6);
  $("upcoming").innerHTML=arr.length?arr.map(p=>`<p>${esc(dateLabel(p.dueDate))} — <b>${esc(p.customerName)}</b>, ${esc(p.garmentName)}</p>`).join(""):'<p class="muted">No upcoming due dates.</p>';
  const rem=reminders.filter(r=>!r.completed&&r.date>=today()).sort((a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||""))).slice(0,6);
- $("upcomingReminders").innerHTML=rem.length?rem.map(r=>`<p>${esc(dateLabel(r.date))} ${esc(r.time||"")} — ${esc(r.title)}</p>`).join(""):'<p class="muted">No upcoming reminders.</p>';
-}
-function clearPieceForm(){
+  $("upcomingReminders").innerHTML=rem.length?rem.map(r=>`<p>${esc(dateLabel(r.date))} ${esc(r.time||"")} — ${esc(r.title)}</p>`).join(""):'<p class="muted">No upcoming reminders.</p>';
+  }
+  function clearPieceForm(){
  $("pieceForm").reset();$("pieceId").value="";$("formTitle").textContent="Add a piece";$("existingPhotos").innerHTML="";
 }
 $("clearForm").onclick=clearPieceForm;
 function editPiece(id){
- if(userRole!=="owner"&&userRole!=="editor"){
-  say("You have view-only access.");
-  return;
- }
-
+ if(!canEdit()){say("You do not have permission to edit records.");return;}
  const p=pieces.find(x=>x.id===id);if(!p)return;
  $("pieceId").value=p.id;$("customerName").value=p.customerName||"";$("garmentName").value=p.garmentName||"";
  $("orderDate").value=p.orderDate||"";$("dueDate").value=p.dueDate||"";$("workStatus").value=p.workStatus||"Pending";
@@ -317,62 +319,27 @@ function editPiece(id){
 }
 $("pieceForm").onsubmit=async e=>{
  e.preventDefault();
-
- if(!user||(userRole!=="owner"&&userRole!=="editor")){
-  say("You do not have permission to add or edit records.");
-  return;
- }
-
+ if(!user||!canEdit()){say("You do not have permission to add or edit records.");return;}
  const id=$("pieceId").value,old=pieces.find(p=>p.id===id)||{};
-
  try{
   const measurementPhotos=[...(old.measurementPhotos||[]),...await uploadFiles("measurementFiles","measurement")];
   const patternPhotos=[...(old.patternPhotos||[]),...await uploadFiles("patternFiles","pattern")];
-
   const data={
-   customerName:$("customerName").value.trim(),
-   garmentName:$("garmentName").value.trim(),
-   orderDate:$("orderDate").value,
-   dueDate:$("dueDate").value,
-   workStatus:$("workStatus").value,
-   completed:$("completed").checked,
-   description:$("description").value.trim(),
-   measurementPhotos,patternPhotos,
-   ownerId:user.uid,
-   updatedAt:new Date().toISOString()
+   customerName:$("customerName").value.trim(),garmentName:$("garmentName").value.trim(),
+   orderDate:$("orderDate").value,dueDate:$("dueDate").value,workStatus:$("workStatus").value,
+   completed:$("completed").checked,description:$("description").value.trim(),
+   measurementPhotos,patternPhotos,ownerId:user.uid,updatedAt:new Date().toISOString()
   };
-
   if(id)await updateDoc(doc(db,"pieces",id),data);
-  else{
-   data.createdAt=new Date().toISOString();
-   await addDoc(collection(db,"pieces"),data);
-  }
-
-  await loadData();
-  clearPieceForm();
-  say("Piece saved successfully.");
-  page("records");
-
- }catch(err){
-  console.error(err);
-  say(err.message||"Could not save the piece.");
- }
+  else{data.createdAt=new Date().toISOString();await addDoc(collection(db,"pieces"),data);}
+  await loadData();clearPieceForm();say("Piece saved successfully.");page("records");
+ }catch(err){console.error(err);say(err.message||"Could not save the piece.");}
 };
 async function removePiece(id){
- if(userRole!=="owner"){
-  say("Only the owner can delete records.");
-  return;
- }
-
+ if(!isOwner()){say("Only the owner can delete records.");return;}
  if(!confirm("Delete this piece record? Photos already uploaded to Drive will remain in Drive."))return;
-
- try{
-  await deleteDoc(doc(db,"pieces",id));
-  await loadData();
-  say("Piece record deleted.");
- }catch(e){
-  say("Delete failed: "+e.message);
- }
+ try{await deleteDoc(doc(db,"pieces",id));await loadData();say("Piece record deleted.");}
+ catch(e){say("Delete failed: "+e.message);}
 }
 function renderReminderPieceOptions(){
  const current=$("reminderPiece").value;
@@ -395,10 +362,16 @@ function renderReminders(){
  <div class="piece" style="margin-bottom:8px">
   <div class="row" style="justify-content:space-between"><b>${esc(r.title)}</b><span class="tag">${r.completed?"Completed":"Pending"}</span></div>
   <p class="muted">${esc(dateLabel(r.date))} ${esc(r.time||"")} · ${esc(pieceTitle(r.pieceId))}</p>
-  <div class="row"><button class="secondary" data-remdone="${r.id}">${r.completed?"Reopen":"Mark complete"}</button><button class="danger" data-remdel="${r.id}">Delete</button></div>
+  <div class="row"><button class="secondary" data-remdone="${r.id}">${r.completed?"Reopen":"Mark complete"}</button>${isOwner()?`<button class="danger" data-remdel="${r.id}">Delete</button>`:""}</div>
  </div>`).join(""):'<p class="muted">No reminders yet.</p>';
- document.querySelectorAll("[data-remdone]").forEach(b=>b.onclick=async()=>{const r=reminders.find(x=>x.id===b.dataset.remdone);await updateDoc(doc(db,"reminders",r.id),{completed:!r.completed});await loadData();});
- document.querySelectorAll("[data-remdel]").forEach(b=>b.onclick=async()=>{if(confirm("Delete this reminder?")){await deleteDoc(doc(db,"reminders",b.dataset.remdel));await loadData();}});
+ document.querySelectorAll("[data-remdone]").forEach(b=>b.onclick=async()=>{
+  try{const r=reminders.find(x=>x.id===b.dataset.remdone);await updateDoc(doc(db,"reminders",r.id),{completed:!r.completed});await loadData();}
+  catch(e){say("Could not update reminder: "+e.message);}
+ });
+ document.querySelectorAll("[data-remdel]").forEach(b=>b.onclick=async()=>{
+  if(!isOwner())return;
+  if(confirm("Delete this reminder?")){try{await deleteDoc(doc(db,"reminders",b.dataset.remdel));await loadData();}catch(e){say("Could not delete reminder: "+e.message);}}
+ });
 }
 const monthNames=["January","February","March","April","May","June","July","August","September","October","November","December"];
 function renderCalendar(){
