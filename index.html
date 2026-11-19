@@ -60,6 +60,7 @@ textarea{min-height:85px;resize:vertical}label{display:block;font-size:13px;font
     <button data-page="editor">Add / edit piece</button>
     <button data-page="reminders">Reminders</button>
     <button data-page="calendar">Calendar</button>
+    <button id="staffTabBtn" data-page="staff" class="hidden">Staff Management</button>
   </div>
   <section id="page-dashboard" class="page">
     <div class="panel"><h2>Overview</h2><div class="stats">
@@ -119,6 +120,13 @@ textarea{min-height:85px;resize:vertical}label{display:block;font-size:13px;font
     <div class="panel"><div class="row" style="justify-content:space-between"><button id="prevMonth" class="secondary">‹ Previous</button><h2 id="monthTitle" style="margin:0"></h2><button id="nextMonth" class="secondary">Next ›</button></div>
       <div class="calendar" id="calendarGrid" style="margin-top:12px"></div>
       <div id="calendarDetails" style="margin-top:12px"></div>
+    </div>
+  </section>
+ <section id="page-staff" class="page hidden">
+    <div class="panel">
+      <h2>Staff Management</h2>
+      <p class="muted">Registered staff accounts and access.</p>
+      <div id="staffList"></div>
     </div>
   </section>
 </section>
