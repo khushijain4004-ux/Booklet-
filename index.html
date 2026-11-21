@@ -195,6 +195,7 @@ onAuthStateChanged(auth,async u=>{
   $("login").classList.remove("hidden");$("app").classList.add("hidden");$("logoutBtn").classList.add("hidden");
   $("registrationPanel").classList.add("hidden");$("loginBtn").classList.remove("hidden");
   $("loginMessage").classList.add("hidden");
+  $("staffTabBtn").classList.add("hidden");
   return;
  }
  if(!u.emailVerified){
@@ -210,6 +211,7 @@ onAuthStateChanged(auth,async u=>{
     user=u;userRole=null;
     $("login").classList.remove("hidden");$("app").classList.add("hidden");$("logoutBtn").classList.add("hidden");
     $("loginBtn").classList.add("hidden");$("registrationPanel").classList.remove("hidden");
+    $("staffTabBtn").classList.add("hidden");
     loginSay("Enter the staff registration code provided by the owner.");
     return;
    }
@@ -217,10 +219,12 @@ onAuthStateChanged(auth,async u=>{
   }catch(e){
    console.error(e);user=null;userRole=null;
    $("login").classList.remove("hidden");$("app").classList.add("hidden");
+   $("staffTabBtn").classList.add("hidden");
    loginSay("Could not verify your staff account: "+e.message);return;
   }
  }
  $("login").classList.add("hidden");$("app").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
+ $("staffTabBtn").classList.toggle("hidden",!isOwner());
  $("welcome").textContent="Signed in as "+u.email+(isOwner()?" (Owner)":" (Staff)");
  try{await loadData();say("Your private Booklet records are loaded.");}
  catch(e){console.error(e);say("Database error: "+e.message);}
@@ -238,6 +242,7 @@ $("registerStaffBtn").onclick=async()=>{
   await batch.commit();
   userRole="staff";$("staffRegistrationCode").value="";
   $("login").classList.add("hidden");$("app").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
+  $("staffTabBtn").classList.add("hidden");
   $("welcome").textContent="Signed in as "+user.email+" (Staff)";
   await loadData();say("Staff account created successfully.");
  }catch(e){
