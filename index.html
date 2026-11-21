@@ -403,6 +403,46 @@ function renderCalendar(){
  if(!selectedCalendarDate||!selectedCalendarDate.startsWith(`${y}-${String(m+1).padStart(2,"0")}`))selectedCalendarDate=today().startsWith(`${y}-${String(m+1).padStart(2,"0")}`)?today():`${y}-${String(m+1).padStart(2,"0")}-01`;
  showCalendarDay(selectedCalendarDate);
 }
+
+// STAFF MANAGEMENT
+let staffMembers=[];
+
+async function renderStaff(){
+ if(!isOwner())return;
+
+ try{
+  const snap=await getDocs(collection(db,"staff"));
+  staffMembers=snap.docs.map(x=>({id:x.id,...x.data()}));
+
+  $("staffList").innerHTML=staffMembers.length
+   ?staffMembers.map(s=>`
+    <div class="piece" style="margin-bottom:8px">
+     <b>${esc(s.name||"Staff member")}</b>
+     <p class="muted">${esc(s.email||"Email not saved")}</p>
+     <button class="danger" data-removestaff="${esc(s.id)}">Remove access</button>
+    </div>
+   `).join("")
+   :'<p class="muted">No staff members registered yet.</p>';
+
+  document.querySelectorAll("[data-removestaff]").forEach(b=>{
+   b.onclick=async()=>{
+    if(!isOwner())return;
+    if(!confirm("Remove this staff member's access to Booklet?"))return;
+
+    try{
+     await deleteDoc(doc(db,"staff",b.dataset.removestaff));
+     await renderStaff();
+     say("Staff access removed.");
+    }catch(e){
+     say("Could not remove staff access: "+e.message);
+    }
+   };
+  });
+ }catch(e){
+  say("Could not load staff list: "+e.message);
+ }
+}
+
 function showCalendarDay(key){
  selectedCalendarDate=key;
  const due=pieces.filter(p=>p.dueDate===key&&!p.completed),rem=reminders.filter(r=>r.date===key&&!r.completed);
@@ -411,10 +451,12 @@ function showCalendarDay(key){
  (rem.map(r=>`<p>Reminder: ${esc(r.title)} — ${esc(pieceTitle(r.pieceId))} ${esc(r.time||"")}</p>`).join("")||"")+
  (!due.length&&!rem.length?'<p class="muted">Nothing scheduled for this day.</p>':"");
 }
+
 $("prevMonth").onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1);renderCalendar();};
 $("nextMonth").onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);renderCalendar();};
 $("searchBox").addEventListener("input",renderRecords);
 $("statusFilter").addEventListener("change",renderRecords);
 </script>
+
 </body>
 </html>
