@@ -122,7 +122,7 @@ textarea{min-height:85px;resize:vertical}label{display:block;font-size:13px;font
       <div id="calendarDetails" style="margin-top:12px"></div>
     </div>
   </section>
- <section id="page-staff" class="page hidden">
+  <section id="page-staff" class="page hidden">
     <div class="panel">
       <h2>Staff Management</h2>
       <p class="muted">Registered staff accounts and access.</p>
@@ -178,6 +178,7 @@ function page(name){
  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.page===name));
  if(name==="calendar")renderCalendar();
  if(name==="reminders")renderReminders();
+ if(name==="staff")renderStaff();
 }
 document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",()=>page(b.dataset.page)));
 
@@ -219,7 +220,6 @@ onAuthStateChanged(auth,async u=>{
   }catch(e){
    console.error(e);user=null;userRole=null;
    $("login").classList.remove("hidden");$("app").classList.add("hidden");
-   $("staffTabBtn").classList.add("hidden");
    loginSay("Could not verify your staff account: "+e.message);return;
   }
  }
@@ -237,7 +237,12 @@ $("registerStaffBtn").onclick=async()=>{
  $("registerStaffBtn").disabled=true;loginSay("Creating your staff account...");
  try{
   const batch=writeBatch(db);
-  batch.set(doc(db,"staff",user.uid),{role:"staff",createdAt:new Date().toISOString()});
+  batch.set(doc(db,"staff",user.uid),{
+   role:"staff",
+   name:user.displayName||"",
+   email:(user.email||"").toLowerCase(),
+   createdAt:new Date().toISOString()
+  });
   batch.set(doc(db,"registrationAttempts",user.uid),{code});
   await batch.commit();
   userRole="staff";$("staffRegistrationCode").value="";
@@ -314,9 +319,9 @@ function renderUpcoming(){
  const arr=pieces.filter(p=>p.dueDate&&!p.completed&&p.dueDate>=today()).sort((a,b)=>a.dueDate.localeCompare(b.dueDate)).slice(0,6);
  $("upcoming").innerHTML=arr.length?arr.map(p=>`<p>${esc(dateLabel(p.dueDate))} — <b>${esc(p.customerName)}</b>, ${esc(p.garmentName)}</p>`).join(""):'<p class="muted">No upcoming due dates.</p>';
  const rem=reminders.filter(r=>!r.completed&&r.date>=today()).sort((a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||""))).slice(0,6);
-  $("upcomingReminders").innerHTML=rem.length?rem.map(r=>`<p>${esc(dateLabel(r.date))} ${esc(r.time||"")} — ${esc(r.title)}</p>`).join(""):'<p class="muted">No upcoming reminders.</p>';
-  }
-  function clearPieceForm(){
+ $("upcomingReminders").innerHTML=rem.length?rem.map(r=>`<p>${esc(dateLabel(r.date))} ${esc(r.time||"")} — ${esc(r.title)}</p>`).join(""):'<p class="muted">No upcoming reminders.</p>';
+}
+function clearPieceForm(){
  $("pieceForm").reset();$("pieceId").value="";$("formTitle").textContent="Add a piece";$("existingPhotos").innerHTML="";
 }
 $("clearForm").onclick=clearPieceForm;
@@ -403,8 +408,7 @@ function renderCalendar(){
  if(!selectedCalendarDate||!selectedCalendarDate.startsWith(`${y}-${String(m+1).padStart(2,"0")}`))selectedCalendarDate=today().startsWith(`${y}-${String(m+1).padStart(2,"0")}`)?today():`${y}-${String(m+1).padStart(2,"0")}-01`;
  showCalendarDay(selectedCalendarDate);
 }
-
-// STAFF MANAGEMENT
+// STAFF MANAGEMENT — owner only
 let staffMembers=[];
 
 async function renderStaff(){
@@ -427,8 +431,7 @@ async function renderStaff(){
   document.querySelectorAll("[data-removestaff]").forEach(b=>{
    b.onclick=async()=>{
     if(!isOwner())return;
-    if(!confirm("Remove this staff member's access to Booklet?"))return;
-
+    if(!confirm("Remove this staff member\'s access to Booklet?"))return;
     try{
      await deleteDoc(doc(db,"staff",b.dataset.removestaff));
      await renderStaff();
@@ -451,12 +454,10 @@ function showCalendarDay(key){
  (rem.map(r=>`<p>Reminder: ${esc(r.title)} — ${esc(pieceTitle(r.pieceId))} ${esc(r.time||"")}</p>`).join("")||"")+
  (!due.length&&!rem.length?'<p class="muted">Nothing scheduled for this day.</p>':"");
 }
-
 $("prevMonth").onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1);renderCalendar();};
 $("nextMonth").onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);renderCalendar();};
 $("searchBox").addEventListener("input",renderRecords);
 $("statusFilter").addEventListener("change",renderRecords);
 </script>
-
 </body>
 </html>
